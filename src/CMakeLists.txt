@@ -48,7 +48,7 @@ set(CRYPTO_BACKEND
   ""
   CACHE
   STRING
-  "The backend to use for cryptography: OpenSSL, Libgcrypt or WinCNG,
+  "The backend to use for cryptography: LibTomCrypt, OpenSSL, Libgcrypt or WinCNG,
 or empty to try any available")
 
 # If the crypto backend was given, rather than searching for the first
@@ -148,6 +148,21 @@ if(CRYPTO_BACKEND STREQUAL "WinCNG" OR NOT CRYPTO_BACKEND)
 
   elseif(${SPECIFIC_CRYPTO_REQUIREMENT} STREQUAL ${REQUIRED})
     message(FATAL_ERROR "WinCNG not available")
+  endif()
+endif()
+
+if(CRYPTO_BACKEND STREQUAL "LibTomCrypt" OR NOT CRYPTO_BACKEND)
+
+  find_package(LibTomCrypt ${SPECIFIC_CRYPTO_REQUIREMENT})
+  find_package(LibTomMath ${SPECIFIC_CRYPTO_REQUIREMENT})
+
+  if(LIBTOMCRYPT_FOUND AND LIBTOMMATH_FOUND)
+    set(CRYPTO_BACKEND "LibTomCrypt")
+    set(CRYPTO_SOURCES libtomcrypt.c libtomcrypt.h)
+    list(APPEND PRIVATE_COMPILE_DEFINITIONS LIBSSH2_LIBTOMCRYPT)
+    list(APPEND PRIVATE_INCLUDE_DIRECTORIES ${LIBTOMCRYPT_INCLUDE_DIRS} ${LIBTOMMATH_INCLUDE_DIRS})
+    list(APPEND LIBRARIES ${LIBTOMCRYPT_LIBRARIES} ${LIBTOMMATH_LIBRARIES})
+    # TODO: Should I do something about PC_LIBS, PC_REQUIRES_PRIVATE here?
   endif()
 endif()
 
