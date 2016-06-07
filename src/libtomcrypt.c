@@ -66,4 +66,11 @@ _libssh2_rsa_new(libssh2_rsa_ctx ** rsap,
     return 0;
 }
 
+void
+_libssh2_rsa_free(libssh2_rsa_ctx *rsa)
+{
+    rsa_free(rsa);
+    free(rsa);
+}
+
 #endif
