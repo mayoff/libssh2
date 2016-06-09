@@ -17,41 +17,74 @@
 
 typedef struct LibTomCrypt_CipherContext CipherContext;
 
+typedef struct CipherMethods {
+    int (*const init)(CipherContext *ctx, int cipher, const unsigned char *iv, const unsigned char *key);
+    int (*const encrypt)(CipherContext *ctx, unsigned char *block, size_t blocksize);
+    int (*const decrypt)(CipherContext *context, unsigned char *block, size_t blocksize);
+    void (*const dtor)(CipherContext *ctx);
+} CipherMethods;
+
 typedef struct LibTomCrypt_CipherType {
     const char *cipher_name;
-    int keylen; // in bytes
-    int (*init)(CipherContext *ctx, const unsigned char *iv, const unsigned char *key);
-    int (*encrypt)(CipherContext *ctx, unsigned char *block, size_t blocksize);
-    int (*decrypt)(CipherContext *context, unsigned char *block, size_t blocksize);
-    void (*dtor)(CipherContext *ctx);
+    const int keylen; // in bytes
+    const CipherMethods *const methods;
 } CipherType;
 
 typedef struct LibTomCrypt_CipherContext {
-    const CipherType *type;
+    const CipherType *type; // Needed because _libssh2_cipher_dtor doesn't get this as an argument.
     union {
         symmetric_CBC cbc;
         symmetric_CTR ctr;
     };
 } CipherContext;
 
-// AES-CTR implementation details.
+static const int NumRoundsAutomatic = 0; // tells libtomcrypt to use the default/correct number of rounds.
+
+// CBC-mode implementation details.
 
 static int
-ctr_init(CipherContext *context, const unsigned char *iv, const unsigned char *key)
+cbc_init(CipherContext *context, int cipher, const unsigned char *iv, const unsigned char *key)
 {
-    const CipherType *type = context->type;
-    const int cipher = find_cipher(type->cipher_name);
-    const int num_rounds = 0; // libtomcrypt will compute the correct number of rounds for keylen.
+    return cbc_start(cipher, iv, key, context->type->keylen, NumRoundsAutomatic, &context->cbc);
+}
+
+static int
+cbc_encrypt_wrapper(CipherContext *context, unsigned char *block, size_t blocksize)
+{
+    return cbc_encrypt(block, block, blocksize, &context->cbc);
+}
+
+static int
+cbc_decrypt_wrapper(CipherContext *context, unsigned char *block, size_t blocksize)
+{
+    return cbc_decrypt(block, block, blocksize, &context->cbc);
+}
+
+static void
+cbc_dtor(CipherContext *context)
+{
+    cbc_done(&context->cbc);
+}
+
+static CipherMethods cbc_methods = {
+    .init = cbc_init,
+    .encrypt = cbc_encrypt_wrapper,
+    .decrypt = cbc_decrypt_wrapper,
+    .dtor = cbc_dtor
+};
+
+// CTR-mode implementation details.
+
+static int
+ctr_init(CipherContext *context, int cipher, const unsigned char *iv, const unsigned char *key)
+{
     // dropbear uses CTR_COUNTER_BIG_ENDIAN so I assume that's correct.
-    return ctr_start(cipher, iv, key, type->keylen, num_rounds, CTR_COUNTER_BIG_ENDIAN, &context->ctr);
+    return ctr_start(cipher, iv, key, context->type->keylen, NumRoundsAutomatic, CTR_COUNTER_BIG_ENDIAN, &context->ctr);
 }
 
 static int
 ctr_encrypt_wrapper(CipherContext *context, unsigned char *block, size_t blocksize)
 {
-    // I inspected the ctr_encrypt source code.
-    // It appears to be safe to pass the same pointer for pt and ct.
-    // Ditto for all the other *_encrypt and *_decrypt functions.
     return ctr_encrypt(block, block, blocksize, &context->ctr);
 }
 
@@ -67,33 +100,56 @@ ctr_dtor(CipherContext *context)
     ctr_done(&context->ctr);
 }
 
+static CipherMethods ctr_methods = {
+    .init = ctr_init,
+    .encrypt = ctr_encrypt_wrapper,
+    .decrypt = ctr_decrypt_wrapper,
+    .dtor = ctr_dtor
+};
+
+// AES-CBC cipher definitions.
+
+static const CipherType CipherType_AES128 = {
+        .cipher_name = "aes",
+        .keylen = 128 / 8,
+        .methods = &cbc_methods
+};
+const _libssh2_cipher_type _libssh2_cipher_aes128 = &CipherType_AES128;
+
+static const CipherType CipherType_AES192 = {
+        .cipher_name = "aes",
+        .keylen = 192 / 8,
+        .methods = &cbc_methods
+};
+const _libssh2_cipher_type _libssh2_cipher_aes192 = &CipherType_AES192;
+
+static const CipherType CipherType_AES256 = {
+        .cipher_name = "aes",
+        .keylen = 256 / 8,
+        .methods = &cbc_methods
+};
+const _libssh2_cipher_type _libssh2_cipher_aes256 = &CipherType_AES256;
+
+// AES-CTR cipher definitions.
+
 static const CipherType CipherType_AES128CTR = {
         .cipher_name = "aes",
         .keylen = 128 / 8,
-        .init = ctr_init,
-        .encrypt = ctr_encrypt_wrapper,
-        .decrypt = ctr_decrypt_wrapper,
-        .dtor = ctr_dtor,
+        .methods = &ctr_methods
 };
 const _libssh2_cipher_type _libssh2_cipher_aes128ctr = &CipherType_AES128CTR;
 
 static const CipherType CipherType_AES192CTR = {
         .cipher_name = "aes",
         .keylen = 192 / 8,
-        .init = ctr_init,
-        .encrypt = ctr_encrypt_wrapper,
-        .decrypt = ctr_decrypt_wrapper,
-        .dtor = ctr_dtor,
+        .methods = &ctr_methods
 };
 const _libssh2_cipher_type _libssh2_cipher_aes192ctr = &CipherType_AES192CTR;
 
 static const CipherType CipherType_AES256CTR = {
         .cipher_name = "aes",
         .keylen = 256 / 8,
-        .init = ctr_init,
-        .encrypt = ctr_encrypt_wrapper,
-        .decrypt = ctr_decrypt_wrapper,
-        .dtor = ctr_dtor,
+        .methods = &ctr_methods
 };
 const _libssh2_cipher_type _libssh2_cipher_aes256ctr = &CipherType_AES256CTR;
 
@@ -112,7 +168,8 @@ _libssh2_cipher_init(_libssh2_cipher_ctx *ctx,
         return -1;
     }
     context->type = type;
-    int rc = type->init(context, iv, secret);
+    const int cipher = find_cipher(type->cipher_name);
+    int rc = type->methods->init(context, cipher, iv, secret);
     if (rc != CRYPT_OK) {
         free(context);
     }
@@ -126,12 +183,17 @@ _libssh2_cipher_crypt(_libssh2_cipher_ctx *ctx,
                           int encrypt, unsigned char *block, size_t blocksize)
 {
     (void)type;
+
+    // Note that all of the *_encrypt and *_decrypt functions seem to allow
+    // the same pointer for pt and ct, allowing for the in-place transformation
+    // this function needs to provide.
+
     CipherContext *context = *ctx;
     int rc;
     if (encrypt) {
-        rc = context->type->encrypt(context, block, blocksize);
+        rc = context->type->methods->encrypt(context, block, blocksize);
     } else {
-        rc = context->type->decrypt(context, block, blocksize);
+        rc = context->type->methods->decrypt(context, block, blocksize);
     }
     return rc == CRYPT_OK ? 0 : -1;
 }
@@ -139,7 +201,7 @@ _libssh2_cipher_crypt(_libssh2_cipher_ctx *ctx,
 void
 _libssh2_cipher_dtor(_libssh2_cipher_ctx *ctx)
 {
-    (*ctx)->type->dtor(*ctx);
+    (*ctx)->type->methods->dtor(*ctx);
     free(*ctx);
     *ctx = NULL;
 }
