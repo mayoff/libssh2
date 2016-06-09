@@ -153,6 +153,33 @@ static const CipherType CipherType_AES256CTR = {
 };
 const _libssh2_cipher_type _libssh2_cipher_aes256ctr = &CipherType_AES256CTR;
 
+// BLOWFISH-CBC cipher definition.
+
+static const CipherType CipherType_Blowfish = {
+    .cipher_name = "blowfish",
+    .keylen = 64 / 8,
+    .methods = &cbc_methods
+};
+const _libssh2_cipher_type _libssh2_cipher_blowfish = &CipherType_Blowfish;
+
+// CAST5-CBC cipher definition.
+
+static const CipherType CipherType_CAST5 = {
+    .cipher_name = "cast5",
+    .keylen = 128 / 8,
+    .methods = &cbc_methods
+};
+const _libssh2_cipher_type  _libssh2_cipher_cast5 = &CipherType_CAST5;
+
+// 3DES-CBC cipher definition.
+
+static const CipherType CipherType_3DES = {
+    .cipher_name = "3des",
+    .keylen = 24,
+    .methods = &cbc_methods
+};
+const _libssh2_cipher_type _libssh2_cipher_3des = &CipherType_3DES;
+
 // Symmetric cipher API
 
 int
@@ -268,6 +295,10 @@ void
 libssh2_crypto_init(void)
 {
     ltc_mp = ltm_desc;
+    register_cipher(&aes_desc);
+    register_cipher(&blowfish_desc);
+    register_cipher(&cast5_desc);
+    register_cipher(&des3_desc);
 }
 
 
