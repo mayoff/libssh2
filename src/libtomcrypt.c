@@ -13,6 +13,65 @@
 #include <tomcrypt.h>
 #include <tomcrypt_math.h>
 
+// HMAC API.
+
+typedef struct LibTomCrypt_HMACState {
+    hmac_state state;
+    size_t outlen;
+} HMACState;
+
+void
+libssh2_hmac_ctx_init(libssh2_hmac_ctx ctx) {
+    // Nothing to do.
+    (void)ctx;
+}
+
+void
+libssh2_hmac_update(libssh2_hmac_ctx ctx, const unsigned char *data, unsigned long datalen) {
+    hmac_process(&ctx->state, data, datalen);
+}
+
+void
+libssh2_hmac_final(libssh2_hmac_ctx ctx, unsigned char output[]) {
+    unsigned long outlen = ctx->outlen;
+    hmac_done(&ctx->state, output, &outlen);
+}
+
+void
+libssh2_hmac_cleanup(libssh2_hmac_ctx *ctxp) {
+    free(*ctxp);
+}
+
+// HMAC implementation details.
+
+static void
+generic_hmac_init(char const *hashname, libssh2_hmac_ctx *ctxp, const void *key, unsigned long keylen)
+{
+    int hash = find_hash(hashname);
+    if (hash == -1) {
+        // No way to return an error state, except this I guess...
+        *ctxp = NULL;
+        return;
+    }
+
+    HMACState *state = (HMACState *)calloc(1, sizeof *state);
+    if (state == NULL) {
+        *ctxp = NULL;
+        return;
+    }
+
+    int rc = hmac_init(&state->state, hash, key, keylen);
+    if (rc != CRYPT_OK) {
+        free(state);
+        *ctxp = NULL;
+        return;
+    }
+
+    state->outlen = hash_descriptor[hash].hashsize;
+    *ctxp = state;
+}
+
+
 // SHA-1 API.
 
 typedef struct LibTomCrypt_SHA1State {
@@ -38,6 +97,12 @@ void
 libssh2_sha1_final(libssh2_sha1_ctx ctx, unsigned char output[SHA_DIGEST_LENGTH]) {
     sha1_done(&ctx->state, output);
     free(ctx);
+}
+
+void
+libssh2_hmac_sha1_init(libssh2_hmac_ctx *ctxp, const void *key, unsigned long keylen)
+{
+    generic_hmac_init("sha1", ctxp, key, keylen);
 }
 
 // SHA-256 API.
@@ -69,6 +134,20 @@ libssh2_sha256_final(libssh2_sha256_ctx ctx, unsigned char output[SHA256_DIGEST_
     free(ctx);
 }
 
+void
+libssh2_hmac_sha256_init(libssh2_hmac_ctx *ctxp, const void *key, unsigned long keylen)
+{
+    generic_hmac_init("sha256", ctxp, key, keylen);
+}
+
+// SHA-512 API (HMAC only).
+
+void
+libssh2_hmac_sha512_init(libssh2_hmac_ctx *ctxp, const void *key, unsigned long keylen)
+{
+    generic_hmac_init("sha512", ctxp, key, keylen);
+}
+
 // MD5 API.
 
 typedef struct LibTomCrypt_MD5State {
@@ -78,7 +157,7 @@ typedef struct LibTomCrypt_MD5State {
 int
 libssh2_md5_init(libssh2_md5_ctx *ctxp)
 {
-    MD5State *state = (MD5State *)calloc(1, *state);
+    MD5State *state = (MD5State *)calloc(1, sizeof *state);
     if (state == NULL) { return -1; }
     md5_init(&state->state);
     *ctxp = state;
@@ -95,6 +174,20 @@ libssh2_md5_final(libssh2_md5_ctx ctx, unsigned char output[MD5_DIGEST_LENGTH])
 {
     md5_done(&ctx->state, output);
     free(ctx);
+}
+
+void
+libssh2_hmac_md5_init(libssh2_hmac_ctx *ctxp, const void *key, unsigned long keylen)
+{
+    generic_hmac_init("md5", ctxp, key, keylen);
+}
+
+// RIPEMD-160 API (HMAC only).
+
+void
+libssh2_hmac_ripemd160_init(libssh2_hmac_ctx *ctxp, const void *key, unsigned long keylen)
+{
+    generic_hmac_init("rmd160", ctxp, key, keylen);
 }
 
 // Symmetric cipher implementation details.
