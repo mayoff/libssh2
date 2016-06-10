@@ -13,6 +13,90 @@
 #include <tomcrypt.h>
 #include <tomcrypt_math.h>
 
+// SHA-1 API.
+
+typedef struct LibTomCrypt_SHA1State {
+    hash_state state;
+} SHA1State;
+
+int
+libssh2_sha1_init(libssh2_sha1_ctx *ctxp)
+{
+    SHA1State *state = (SHA1State *)calloc(1, sizeof *state);
+    if (state == NULL) { return -1; }
+    sha1_init(&state->state);
+    *ctxp = state;
+    return 0;
+}
+
+void
+libssh2_sha1_update(libssh2_sha1_ctx ctx, const unsigned char *data, size_t len) {
+    sha1_process(&ctx->state, data, len);
+}
+
+void
+libssh2_sha1_final(libssh2_sha1_ctx ctx, unsigned char output[SHA_DIGEST_LENGTH]) {
+    sha1_done(&ctx->state, output);
+    free(ctx);
+}
+
+// SHA-256 API.
+
+typedef struct LibTomCrypt_SHA256State {
+    hash_state state;
+} SHA256State;
+
+int
+libssh2_sha256_init(libssh2_sha256_ctx *ctxp)
+{
+    SHA256State *state = (SHA256State *)calloc(1, sizeof *state);
+    if (state == NULL) { return -1; }
+    sha256_init(&state->state);
+    *ctxp = state;
+    return 0;
+}
+
+void
+libssh2_sha256_update(libssh2_sha256_ctx ctx, const unsigned char *data, size_t len)
+{
+    sha256_process(&ctx->state, data, len);
+}
+
+void
+libssh2_sha256_final(libssh2_sha256_ctx ctx, unsigned char output[SHA256_DIGEST_LENGTH])
+{
+    sha256_done(&ctx->state, output);
+    free(ctx);
+}
+
+// MD5 API.
+
+typedef struct LibTomCrypt_MD5State {
+    hash_state state;
+} MD5State;
+
+int
+libssh2_md5_init(libssh2_md5_ctx *ctxp)
+{
+    MD5State *state = (MD5State *)calloc(1, *state);
+    if (state == NULL) { return -1; }
+    md5_init(&state->state);
+    *ctxp = state;
+    return 0;
+}
+
+void libssh2_md5_update(libssh2_md5_ctx ctx, const unsigned char *data, size_t len)
+{
+    md5_process(&ctx->state, data, len);
+}
+
+void
+libssh2_md5_final(libssh2_md5_ctx ctx, unsigned char output[MD5_DIGEST_LENGTH])
+{
+    md5_done(&ctx->state, output);
+    free(ctx);
+}
+
 // Symmetric cipher implementation details.
 
 typedef struct LibTomCrypt_CipherContext CipherContext;
@@ -295,11 +379,20 @@ void
 libssh2_crypto_init(void)
 {
     ltc_mp = ltm_desc;
+    register_hash(&sha1_desc);
+    register_hash(&sha256_desc);
+    register_hash(&sha512_desc);
+    register_hash(&md5_desc);
+    register_hash(&rmd160_desc);
     register_cipher(&aes_desc);
     register_cipher(&blowfish_desc);
     register_cipher(&cast5_desc);
     register_cipher(&des3_desc);
 }
 
+void
+libssh2_crypto_exit(void)
+{
+}
 
 #endif

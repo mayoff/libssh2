@@ -1,5 +1,26 @@
 
+#include <tomcrypt.h>
+
 void libssh2_crypto_init(void);
+void libssh2_crypto_exit(void);
+
+#define SHA_DIGEST_LENGTH 20
+typedef struct LibTomCrypt_SHA1State *libssh2_sha1_ctx;
+int libssh2_sha1_init(libssh2_sha1_ctx *ctxp);
+void libssh2_sha1_update(libssh2_sha1_ctx ctx, const unsigned char *data, size_t len);
+void libssh2_sha1_final(libssh2_sha1_ctx ctx, unsigned char output[SHA_DIGEST_LENGTH]);
+
+#define SHA256_DIGEST_LENGTH 32
+typedef struct LibTomCrypt_SHA256State *libssh2_sha256_ctx;
+int libssh2_sha256_init(libssh2_sha256_ctx *ctxp);
+void libssh2_sha256_update(libssh2_sha256_ctx ctx, const unsigned char *data, size_t len);
+void libssh2_sha256_final(libssh2_sha256_ctx ctx, unsigned char output[SHA_DIGEST_LENGTH]);
+
+#define MD5_DIGEST_LENGTH 16
+typedef struct LibTomCrypt_MD5State *libssh2_md5_ctx;
+int libssh2_md5_init(libssh2_md5_ctx *ctxp);
+void libssh2_md5_update(libssh2_md5_ctx ctx, const unsigned char *data, size_t len);
+void libssh2_md5_final(libssh2_md5_ctx ctx, unsigned char output[MD5_DIGEST_LENGTH]);
 
 typedef struct LibTomCrypt_CipherContext *_libssh2_cipher_ctx;
 typedef const struct LibTomCrypt_CipherType *const _libssh2_cipher_type;
