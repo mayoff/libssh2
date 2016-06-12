@@ -12,6 +12,11 @@
 #include "libtomcrypt.h"
 #include <tomcrypt.h>
 #include <tomcrypt_math.h>
+#include <tommath.h>
+#include <fcntl.h>
+
+// File descriptor open on /dev/urandom.
+static int devurandom = -1;
 
 // HMAC API.
 
@@ -410,6 +415,207 @@ _libssh2_cipher_dtor(_libssh2_cipher_ctx *ctx)
     *ctx = NULL;
 }
 
+// Bignum API
+
+struct LibTomCrypt_BigNumContext { };
+_libssh2_bn_ctx
+_libssh2_bn_ctx_new(void)
+{
+    return NULL;
+}
+
+void
+_libssh2_bn_ctx_free(_libssh2_bn_ctx ctx)
+{
+}
+
+typedef struct LibTomCrypt_BigNum {
+    mp_int number;
+} BigNum;
+
+_libssh2_bn
+*_libssh2_bn_init(void)
+{
+    BigNum *bn = (BigNum *)calloc(1, sizeof *bn);
+    if (bn != NULL) {
+        mp_init(&bn->number);
+    }
+    return bn;
+}
+
+_libssh2_bn
+*_libssh2_bn_init_from_bin(void)
+{
+    return _libssh2_bn_init();
+}
+
+void
+_libssh2_bn_free(_libssh2_bn *bn)
+{
+    mp_clear(&bn->number);
+    free(bn);
+}
+
+unsigned long
+_libssh2_bn_bytes(_libssh2_bn *bn)
+{
+    return (unsigned long)mp_unsigned_bin_size(&bn->number);
+}
+
+unsigned long
+_libssh2_bn_bits(_libssh2_bn *bn)
+{
+    return (unsigned long)mp_count_bits(&bn->number);
+}
+
+int
+_libssh2_bn_set_word(_libssh2_bn *bn, unsigned long val)
+{
+    return mp_set_long(&bn->number, val) == MP_OKAY;
+}
+
+_libssh2_bn *
+_libssh2_bn_from_bin(_libssh2_bn *bn, int len,  const unsigned char *val)
+{
+    if (bn != NULL) {
+        int result = mp_read_unsigned_bin(&bn->number, val, len);
+        return result == MP_OKAY ? bn : NULL;
+    }
+
+    bn = _libssh2_bn_init();
+    if (bn == NULL) {
+        return NULL;
+    }
+    _libssh2_bn *result = _libssh2_bn_from_bin(bn, len, val);
+    if (result == NULL) {
+        _libssh2_bn_free(bn);
+    }
+    return result;
+}
+
+void
+_libssh2_bn_to_bin(_libssh2_bn *bn, unsigned char *val)
+{
+    /*
+     * Note that HACKING.CRYPTO says this function should return
+     * "the length of the big-endian number." However:
+     *
+     * - The wincng implementation is declared to return void.
+     * - The os400qc3 implementation returns -1 on error and 0 on success.
+     * - The libgcrypt implementation returns a gcry_error_t.
+     * - The openssl implementation returns "the length of the big-endian number".
+     * - No caller of the function actually looks at the return value.
+     * - The caller already had to know the length to allocate val.
+     */
+
+    int result = mp_to_unsigned_bin(&bn->number, val);
+    if (result != MP_OKAY) {
+        // No real way to report an error here...
+    }
+}
+
+static int
+randomize(unsigned char *bytes, int count)
+{
+    return read(devurandom, bytes, (size_t)count) == count ? MP_OKAY : MP_VAL;
+}
+
+static int
+append_random_bits(mp_int *number, unsigned char *random_bytes, int bits_needed)
+{
+    int result = MP_OKAY;
+
+    while (bits_needed > CHAR_BIT) {
+        result = mp_lshd(number, CHAR_BIT);
+        if (result == MP_OKAY) {
+            result = mp_add_d(number, *random_bytes, number);
+        }
+        if (result != MP_OKAY) {
+            return result;
+        }
+        random_bytes++;
+        bits_needed -= CHAR_BIT;
+    }
+
+    if (bits_needed != 0) {
+        mp_digit d = *random_bytes;
+        d &= (((mp_digit)1) << bits_needed) - 1;
+        result = mp_lshd(number, bits_needed);
+        if (result == MP_OKAY) {
+            result = mp_add_d(number, d, number);
+        }
+    }
+
+    return result;
+}
+
+void
+_libssh2_bn_rand(_libssh2_bn *bn, int bits, int top, int bottom)
+{
+    /*
+     * Note that HACKING.CRYPTO defines this function (and top and bottom
+     * in particular) as identical to BN_rand. While the os400qc3 and wincng
+     * backends go to lengths to implement the documented behavior, the
+     * libgcrypt backend ignores them entirely, and the two calls to this
+     * function always pass top=0 and bottom=-1, which has the effect of
+     * requiring the most significant and least significant bits of the
+     * chosen number to be 1 (thus making the chosen number odd and
+     * exactly `bits` bits in length).
+     *
+     * This implementation assumes top=0 and bottom=-1.
+     *
+     * Note that there's no way to report failure. I just set the output
+     * to zero on error...
+     */
+
+    if (bits == 1) {
+        mp_set_int(&bn->number, 1);
+        return;
+    }
+
+    if (bits == 2) {
+        mp_set_int(&bn->number, 3);
+        return;
+    }
+
+    int random_bits_needed = bits - 2;
+    int random_bytes_needed = (random_bits_needed + 7) / 8;
+    mp_zero(&bn->number);
+
+    if (devurandom == -1) {
+        return;
+    }
+
+    unsigned char random_bytes[random_bytes_needed];
+    if (randomize(random_bytes, random_bytes_needed) != MP_OKAY) {
+        return;
+    }
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    if (0
+        // Force high bit to 1.
+        || mp_add_d(&bn->number, 1, &bn->number) != MP_OKAY
+        || append_random_bits(&bn->number, random_bytes, random_bits_needed) != MP_OKAY
+        // Make room for low bit.
+        || mp_lshd(&bn->number, 1) != MP_OKAY
+        // Force low bit to 1.
+        || mp_add_d(&bn->number, 1, &bn->number) != MP_OKAY
+    ) {
+        mp_zero(&bn->number);
+        return;
+    }
+#pragma clang diagnostic pop
+}
+
+void
+_libssh2_bn_mod_exp(_libssh2_bn *Y, _libssh2_bn *G,  _libssh2_bn *X, _libssh2_bn *P,  _libssh2_bn_ctx *ctx)
+{
+    (void)ctx;
+    mp_exptmod(&G->number, &X->number, &P->number, &Y->number);
+    // Once again, no way to report an error...
+}
+
 // RSA API
 
 int
@@ -471,6 +677,10 @@ _libssh2_rsa_free(libssh2_rsa_ctx *rsa)
 void
 libssh2_crypto_init(void)
 {
+    devurandom = open("/dev/urandom", O_RDONLY);
+    // No way to report failure of that open...
+    fcntl(devurandom, F_SETFD, FD_CLOEXEC);
+
     ltc_mp = ltm_desc;
     register_hash(&sha1_desc);
     register_hash(&sha256_desc);
@@ -486,6 +696,8 @@ libssh2_crypto_init(void)
 void
 libssh2_crypto_exit(void)
 {
+    close(devurandom);
+    devurandom = -1;
 }
 
 #endif

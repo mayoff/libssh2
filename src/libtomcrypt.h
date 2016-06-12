@@ -1,6 +1,4 @@
 
-#include <tomcrypt.h>
-
 void libssh2_crypto_init(void);
 void libssh2_crypto_exit(void);
 
@@ -62,6 +60,22 @@ extern _libssh2_cipher_type _libssh2_cipher_cast5;
 
 #define LIBSSH2_3DES 1
 extern _libssh2_cipher_type _libssh2_cipher_3des;
+
+typedef struct LibTomCrypt_BigNumContext *_libssh2_bn_ctx;
+_libssh2_bn_ctx _libssh2_bn_ctx_new(void);
+void _libssh2_bn_ctx_free(_libssh2_bn_ctx ctx);
+
+typedef struct LibTomCrypt_BigNum _libssh2_bn;
+_libssh2_bn *_libssh2_bn_init(void);
+_libssh2_bn *_libssh2_bn_init_from_bin(void);
+void _libssh2_bn_free(_libssh2_bn *bn);
+unsigned long _libssh2_bn_bytes(_libssh2_bn *bn);
+unsigned long _libssh2_bn_bits(_libssh2_bn *bn);
+int _libssh2_bn_set_word(_libssh2_bn *bn, unsigned long val);
+_libssh2_bn * _libssh2_bn_from_bin(_libssh2_bn *bn, int len,  const unsigned char *val);
+void _libssh2_bn_to_bin(_libssh2_bn *bn, unsigned char *val);
+void _libssh2_bn_rand(_libssh2_bn *bn, int bits, int top, int bottom);
+void _libssh2_bn_mod_exp(_libssh2_bn *r, _libssh2_bn *a,  _libssh2_bn *p, _libssh2_bn *m,  _libssh2_bn_ctx *ctx);
 
 #define LIBSSH2_RSA 1
 typedef struct Rsa_key libssh2_rsa_ctx;
